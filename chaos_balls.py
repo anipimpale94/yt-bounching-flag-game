@@ -1,10 +1,9 @@
 from pygame.gfxdraw import circle
 # from reflection import arrow, yellow
-from drawing import aacirlce
 import pygame
 import os
 import time as t
-from math import acos, atan2, sin, cos, sqrt, pi
+from math import acos, atan2, sin, cos, sqrt, pi, radians
 import random
 # import math
 from test import dot, simul
@@ -60,6 +59,10 @@ g = -9.81
 bigr = height//2 # rad of big cirlce
 centx, centy = width//2, height//2 # center of cirlce
 frames = 0
+ring_angle = 0  # rotation of outer ring (degrees)
+RING_SPIN_SPEED = 0.5  # degrees per frame (slower spin)
+JERK_ANGLE_DEG = 6  # random direction change on ring bounce (degrees, ±this)
+# Escape zone must match visual gap exactly: [ring_angle, ring_angle + GAP_SEGMENT_DEG)
 class Balls():
     trail = False  # set True to show ball path
     balls = list()
@@ -77,6 +80,7 @@ class Balls():
         self.vely   = 0
         self.acc    = g/fps
         self.track  = list()
+        self.escaped = False
 
 
     def drawball(self):
@@ -95,10 +99,13 @@ class Balls():
 
 
         if center_to_ball >= (bigr - self.radius):
+            # Ball angle must use same convention as pygame.draw.arc: 0=right, 90=up (math convention, y-up)
+            ball_angle_rad = atan2(y - bally, ballx - x)
+            if angle_in_gap(ball_angle_rad, ring_angle, GAP_SEGMENT_DEG):
+                self.escaped = True
+                return
             # play bounce sound effect
-            
             pygame.mixer.Sound.play(pygame.mixer.Sound(self.sound))
-
 
             while sqrt((x-self.posx)**2 + (y-self.posy)**2) > (bigr - self.radius):
                 step = 0.2
@@ -119,6 +126,14 @@ class Balls():
 
             self.velx = reflected[0]
             self.vely = -reflected[1]
+
+            # little jerk on ring hit: rotate velocity by random angle, keep speed
+            speed = sqrt(self.velx**2 + self.vely**2)
+            if speed > 1e-6:
+                angle = atan2(-self.vely, self.velx)
+                jerk_rad = radians(random.uniform(-JERK_ANGLE_DEG, JERK_ANGLE_DEG))
+                self.velx = speed * cos(angle + jerk_rad)
+                self.vely = -speed * sin(angle + jerk_rad)
 
             # a shitty fix to speed's gradual loss
 
@@ -150,6 +165,30 @@ def draw_cricle(color, radius, thicc, posx, posy):
     pygame.draw.circle(screen, color, (posx, posy), radius, thicc)
 
 
+def angle_in_gap(ball_angle_rad, gap_start_deg, gap_span_deg):
+    """True iff ball angle lies in [gap_start_deg, gap_start_deg + gap_span_deg) — same convention as draw_arc."""
+    ball_deg = (ball_angle_rad * 180 / pi) % 360.0
+    start = gap_start_deg % 360.0
+    end = (gap_start_deg + gap_span_deg) % 360.0
+    if start < end:
+        return start <= ball_deg < end
+    # gap wraps (e.g. [350°, 10°))
+    return ball_deg >= start or ball_deg < end
+
+
+GAP_SEGMENT_DEG = 30  # angular width of the single escape hole (degrees)
+
+
+def draw_spinning_ring(radius, cx, cy, angle_deg, color_bright, color_dim, gap_half_deg=None, num_segments=24, thickness=2):
+    """Draw the ring as one arc that skips exactly one gap. Angles in [0, 2*pi) to avoid wrap seam."""
+    rect = (cx - radius, cy - radius, 2 * radius, 2 * radius)
+    # Gap: angle_deg to angle_deg + GAP_SEGMENT_DEG. Draw the rest: from (angle_deg + GAP_SEGMENT_DEG) to angle_deg (counter‑clockwise).
+    start_rad = radians((angle_deg + GAP_SEGMENT_DEG) % 360)
+    end_rad = radians(angle_deg % 360)
+    # Arc goes counter‑clockwise; when start > end we wrap (e.g. 35°→360°→20°). Never pass end > 2*pi.
+    pygame.draw.arc(screen, color_bright, rect, start_rad, end_rad, thickness)
+
+
 
 # 4 balls with different colors, random start directions
 speed = 4
@@ -167,7 +206,8 @@ for ball in Balls.balls:
 
 
 pause = False
-start_sim = False 
+start_sim = False
+game_over = False  # True when one ball left (winner) or all escaped 
 
 
 while start_sim is False:
@@ -194,16 +234,36 @@ while True:
     
 
     screen.fill(bg)
-    aacirlce(bigr, width//2, height//2, whitest, 1)
+    draw_spinning_ring(bigr, centx, centy, ring_angle, whitest, grey, num_segments=24, thickness=2)
+    if not pause:
+        ring_angle = (ring_angle + RING_SPIN_SPEED) % 360
 
-    for ball in Balls.balls:
-        if len(ball.track)> 2 and Balls.trail:
+    active_balls = [b for b in Balls.balls if not b.escaped]
+    if not game_over and len(active_balls) <= 1:
+        game_over = True
+        pause = True
+    for ball in active_balls:
+        if len(ball.track) > 2 and Balls.trail:
             pygame.draw.aalines(screen, ball.color, False, ball.track, 2)
-    for ball in Balls.balls:
+    for ball in active_balls:
         ball.drawball()
         if not pause:
             ball.collision_handling()
             ball.motion()
+
+    # Last ball in the ring wins (or all escaped)
+    if game_over:
+        try:
+            font = pygame.font.Font(None, 48)
+            if len(active_balls) == 1:
+                winner = active_balls[0]
+                text = font.render(f"{winner.name} wins!", True, winner.color)
+            else:
+                text = font.render("All escaped!", True, whitest)
+            tr = text.get_rect(center=(width // 2, height // 2))
+            screen.blit(text, tr)
+        except Exception:
+            pass
     
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
