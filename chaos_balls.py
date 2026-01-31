@@ -11,7 +11,7 @@ from test import dot, simul
 # Game presets
 start_time = t.time()
 fps = 120
-width, height = 590, 470
+width, height = 800, 600
 
 # Centers window
 x, y = 1360 - width, 40
@@ -54,10 +54,23 @@ magenta      = (255,  13, 130)
 magenta2     = (214,   0, 100)
 bg = deepblue
 
+# 27 balls: (name, (r,g,b))
+BALL_CONFIGS = [
+    ("Golden", (245, 170, 10)), ("Red", (225, 40, 40)), ("Green", (10, 200, 27)), ("Blue", (17, 200, 251)),
+    ("Orange", (255, 72, 0)), ("Yellow", (255, 230, 0)), ("Cyan", (0, 200, 200)), ("Magenta", (255, 13, 130)),
+    ("Lime", (50, 255, 50)), ("Teal", (0, 128, 128)), ("Navy", (0, 0, 128)), ("Purple", (128, 0, 128)),
+    ("Coral", (255, 127, 80)), ("Pink", (255, 192, 203)), ("Brown", (139, 69, 19)), ("Olive", (128, 128, 0)),
+    ("Maroon", (128, 0, 0)), ("Turquoise", (64, 224, 208)), ("Violet", (238, 130, 238)), ("Crimson", (220, 20, 60)),
+    ("Silver", (192, 192, 192)), ("Sky", (135, 206, 235)), ("Salmon", (250, 128, 114)), ("Plum", (221, 160, 221)),
+    ("Mint", (152, 255, 152)), ("Cream", (255, 253, 208)), ("Lavender", (230, 230, 250)),
+]
+
 # g = -0.1
 g = -9.81
-bigr = height//2 # rad of big cirlce
-centx, centy = width//2, height//2 # center of cirlce
+RING_MARGIN = 50  # space between ring outer edge and screen edge
+bigr = min(width, height)//2 - RING_MARGIN  # radius of ring
+centx, centy = width//2, height//2  # center of circle
+SPAWN_RADIUS = 25  # small circle around center where balls respawn
 frames = 0
 ring_angle = 0  # rotation of outer ring (degrees)
 RING_SPIN_SPEED = 0.5  # degrees per frame (slower spin)
@@ -81,6 +94,7 @@ class Balls():
         self.acc    = g/fps
         self.track  = list()
         self.escaped = False
+        self.wins = 0
 
 
     def drawball(self):
@@ -192,10 +206,29 @@ def draw_spinning_ring(radius, cx, cy, angle_deg, color_bright, color_dim, gap_h
 
 # 4 balls with different colors, random start directions
 speed = 4
-ball1 = Balls("ball1", golden,  8, 0, width//2 - bigr + 15, height//2, "golf_ball.wav")
-ball2 = Balls("ball2", red,     8, 0, width//2 + bigr - 15, height//2, "golf_ball.wav")
-ball3 = Balls("ball3", green,   8, 0, width//2, height//2 - bigr + 15, "golf_ball.wav")
-ball4 = Balls("ball4", blue,    8, 0, width//2, height//2 + bigr - 15, "golf_ball.wav")
+# Create 27 balls, spread on spawn circle at startup
+for i, (name, color) in enumerate(BALL_CONFIGS):
+    angle = 2 * pi * i / len(BALL_CONFIGS)
+    px = centx + SPAWN_RADIUS * cos(angle)
+    py = centy - SPAWN_RADIUS * sin(angle)
+    Balls(name, color, 8, 0, px, py, "golf_ball.wav")
+
+def reset_round():
+    """Respawn each ball at a different spot in the spawn circle (90° apart + jitter), random direction."""
+    for i, ball in enumerate(Balls.balls):
+        ball.escaped = False
+        ball.track.clear()
+        # Different location per ball: 4 base angles (0°, 90°, 180°, 270°) + random jitter
+        base_angle = 2 * pi * i / len(Balls.balls) + random.uniform(-0.15, 0.15)
+        r = random.uniform(SPAWN_RADIUS * 0.4, SPAWN_RADIUS)
+        ball.posx = centx + r * cos(base_angle)
+        ball.posy = centy - r * sin(base_angle)
+        # Random direction (different for each ball)
+        vel_angle = random.uniform(0, 2 * pi)
+        ball.velx = speed * cos(vel_angle)
+        ball.vely = speed * sin(vel_angle)
+        ball.acc = 0
+
 
 for ball in Balls.balls:
     angle = random.uniform(0, 2 * pi)
@@ -204,24 +237,31 @@ for ball in Balls.balls:
     ball.acc = 0   # no gravity, straight lines between bounces
 
 
-
 pause = False
-start_sim = False
-game_over = False  # True when one ball left (winner) or all escaped 
+start_sim = False 
 
 
 while start_sim is False:
-    
     screen.fill(bg)
-    screen.blit(background, [0,0])
+    # Centered content only (no background image to avoid overlapping text)
+    try:
+        title_font = pygame.font.Font(None, 72)
+        hint_font = pygame.font.Font(None, 40)
+        title = title_font.render("Bouncing Balls", True, whitest)
+        hint = hint_font.render("Press TAB to start", True, bluish_white)
+        tr_title = title.get_rect(center=(width // 2, height // 2 - 35))
+        tr_hint = hint.get_rect(center=(width // 2, height // 2 + 25))
+
+        screen.blit(title, tr_title)
+        screen.blit(hint, tr_hint)
+    except Exception:
+        pass
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             quit()
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_TAB:
                 start_sim = True
-    
-
 
     pygame.display.update()
     clock.tick(fps)
@@ -234,14 +274,27 @@ while True:
     
 
     screen.fill(bg)
+    # Top 3 score card at top
+    try:
+        counter_font = pygame.font.Font(None, 36)
+        top3 = sorted(Balls.balls, key=lambda b: b.wins, reverse=True)[:3]
+        parts = [f"{b.name}: {b.wins}" for b in top3]
+        counter_text = counter_font.render("  |  ".join(parts), True, whitest)
+        tr_counter = counter_text.get_rect(midtop=(width // 2, 12))
+        screen.blit(counter_text, tr_counter)
+    except Exception:
+        pass
+
     draw_spinning_ring(bigr, centx, centy, ring_angle, whitest, grey, num_segments=24, thickness=2)
     if not pause:
         ring_angle = (ring_angle + RING_SPIN_SPEED) % 360
 
     active_balls = [b for b in Balls.balls if not b.escaped]
-    if not game_over and len(active_balls) <= 1:
-        game_over = True
-        pause = True
+    if len(active_balls) <= 1:
+        if len(active_balls) == 1:
+            active_balls[0].wins += 1
+        reset_round()
+        active_balls = list(Balls.balls)
     for ball in active_balls:
         if len(ball.track) > 2 and Balls.trail:
             pygame.draw.aalines(screen, ball.color, False, ball.track, 2)
@@ -251,20 +304,6 @@ while True:
             ball.collision_handling()
             ball.motion()
 
-    # Last ball in the ring wins (or all escaped)
-    if game_over:
-        try:
-            font = pygame.font.Font(None, 48)
-            if len(active_balls) == 1:
-                winner = active_balls[0]
-                text = font.render(f"{winner.name} wins!", True, winner.color)
-            else:
-                text = font.render("All escaped!", True, whitest)
-            tr = text.get_rect(center=(width // 2, height // 2))
-            screen.blit(text, tr)
-        except Exception:
-            pass
-    
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             quit()
