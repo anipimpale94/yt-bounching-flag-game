@@ -122,10 +122,10 @@ while True:
         if len(ball.track) > 2 and Balls.trail:
             pygame.draw.aalines(screen, ball.color, False, ball.track, 2)
     for ball in active_balls:
-        ball.drawball(screen)
+        ball.draw(screen)
         if not pause:
             ball.collision_handling(ring_angle)
-            ball.motion(frames)
+            ball.update(frames)
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:

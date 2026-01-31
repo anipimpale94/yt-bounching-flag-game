@@ -4,7 +4,9 @@ from math import sqrt, atan2, sin, cos, radians, pi
 from config import g, fps, centx, centy, bigr, GAP_SEGMENT_DEG, JERK_ANGLE_DEG
 from utils import dot, angle_in_gap
 
-class Balls():
+from game_object import GameObject
+
+class Balls(GameObject):
     trail = False  # set True to show ball path
     balls = list()
     def __init__(self, name, color, radius, thicc, posx, posy, sound="metalmicrowave.wav"):
@@ -25,7 +27,7 @@ class Balls():
         self.wins = 0
 
 
-    def drawball(self, screen):
+    def draw(self, screen):
         pygame.draw.circle(screen, self.color, (self.posx, self.posy), self.radius, self.thicc)
     
     def collision_handling(self, ring_angle):
@@ -61,7 +63,6 @@ class Balls():
                 safe_vel = vel if vel != 0 else 0.1
                 self.posx += -self.velx*step/safe_vel
                 self.posy -= -self.vely*step/safe_vel
-
                 
             normal = ballx - x, bally - y
             normal_mag = center_to_ball #sqrt(normal[0]**2 + normal[1]**2)
@@ -85,7 +86,7 @@ class Balls():
                 self.velx = speed * cos(angle + jerk_rad)
                 self.vely = -speed * sin(angle + jerk_rad)
 
-    def motion(self, frames):
+    def update(self, frames):
 
         self.velx += 0
         self.vely += self.acc
